@@ -1,0 +1,56 @@
+{
+   "socket_timeout": 0,
+   "prime_length": 256,
+   "int_length": 32,
+   "aes_algorithm": "aes192",
+   "server_root_dir": "./",
+   "pHeaders": {
+      "size": "size",
+      "message": {
+         "name": "message",
+         "request": "request",
+         "response": "response",
+         "truncated": "trunc"
+      },
+      "binary": {
+         "pId": "pId",
+         "pPart": "pPart"
+      }
+   },
+   "request": {
+      "restAPI": {
+         "name": "rest",
+         "method": {
+            "name": "method",
+            "get": "get",
+            "post": "post",
+            "put": "put",
+            "delete": "delete"
+         }
+      },
+      "dir": {
+         "name": "ls-l"
+      },
+      "path": "path"
+   },
+   "response": {
+      "dir": {
+         "f": "files",
+         "d": "dirs"
+      }
+   },
+   "socket": {
+      "connect": "connect",
+      "data": "data",
+      "end": "end",
+      "hError": "error",
+      "pUnpack": "unpac",
+      "pAssembly": "pAss",
+      "bigMessage": "message",
+      "request": "rq",
+      "response": "rp",
+      "send": "send",
+      "sendStream": "sendStr",
+      "closeStream": "closeStream"
+   }
+}

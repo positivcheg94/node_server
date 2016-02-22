@@ -1,0 +1,29 @@
+   {
+  "name": "node_server",
+  "version": "0.1.0",
+  "description": "simple node.js server",
+  "main": "bson-tcp-server.js",
+  "scripts": {
+    "test": "node bson-tcp-server.js",
+    "start": "node bson-tcp-server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/positivcheg94/node_server.git"
+  },
+  "keywords": [
+    "node.js",
+    "tcp",
+    "bson protocol",
+    "server"
+  ],
+  "author": "yang",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/positivcheg94/node_server/issues"
+  },
+  "homepage": "https://github.com/positivcheg94/node_server#readme",
+  "dependencies": {
+    "bson": "^0.4.8"
+  }
+}
