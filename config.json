@@ -14,7 +14,12 @@
       },
       "binary": {
          "pId": "pId",
-         "pPart": "pPart"
+         "pPart": "pPart",
+         "mode":{
+            "name":"mode",
+            "bson":1,
+            "json":2
+         }
       }
    },
    "request": {

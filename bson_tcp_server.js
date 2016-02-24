@@ -19,6 +19,7 @@ const socEvent = config.socket
 // packet headers
 const pHead = config.pHeaders
 const binHead = pHead.binary
+const pMode = binHead.mode
 const mHead = pHead.message
 
 // requests
@@ -68,23 +69,28 @@ autoincrementId.prototype.toString = function() {
 }
 
 // packet processing related functions
-function packPacket(pId, pPart, msg) {
+function packPacket(pId, pPart, message, pTruncated, mode) {
+   if (pTruncated !== undefined) {
+      message[mHead.truncated] = pTruncated
+   }
+   if (mode === undefined) {
+      var mode = pMode.json
+   }
    if (DEBUG) {
       console.log('outgoing message')
-      console.log(msg)
+      console.log(message)
    }
-   var bsonPacket = BSON.serialize(msg)
-   var totalSize = bsonPacket.length + 12
-   var headers = new Buffer(new Uint32Array([totalSize, pId, pPart]).buffer)
-   return new Buffer.concat([headers, bsonPacket])
-}
+   switch (mode) {
+      case pMode.json:
+         var packet = Buffer(JSON.stringify(message))
+         break;
+      default:
+         var packet = BSON.serialize(message)
+   }
+   var totalSize = packet.length + 16
+   var headers = Buffer(new Uint32Array([totalSize, pId, pPart, mode]).buffer)
 
-function packPacketTrunc(pId, pPart, pTruncated, message) {
-   message[mHead.truncated] = pTruncated
-   var bsonPacket = BSON.serialize(message)
-   var totalSize = bsonPacket.length + 12
-   var headers = new Buffer(new Uint32Array([totalSize, pId, pPart]).buffer)
-   return new Buffer.concat([headers, bsonPacket])
+   return new Buffer.concat([headers, packet])
 }
 
 function unpackPacket(data) {
@@ -97,7 +103,16 @@ function unpackPacket(data) {
             return this.name + ": " + this.message
          }
       }
-   var msg = BSON.deserialize(data.slice(12))
+   var binPacket = data.slice(16)
+   var mode = data.readInt32LE(12)
+   switch (mode) {
+      case pMode.json:
+         var msg = JSON.parse(binPacket.toString())
+         break;
+      default:
+         var msg = BSON.deserialize(binPacket)
+   }
+
    if (DEBUG) {
       console.log('incomming message')
       console.log(msg)
@@ -105,6 +120,7 @@ function unpackPacket(data) {
    return {
       [binHead.pId]: data.readUInt32LE(4),
       [binHead.pPart]: data.readUInt32LE(8),
+      [mode.name]: mode,
       [mHead.name]: msg
    }
 }
@@ -113,7 +129,7 @@ function unpackPacket(data) {
 var server = net.createServer((socket) => { //'connection' listener
    var client_public_key = null
 
-   var packetPool = null
+   var packetPool = {}
 
    var incomingPacket = {
       packet_size: 0,
@@ -148,7 +164,7 @@ var server = net.createServer((socket) => { //'connection' listener
 
    // assembly messages with more than 1 part
    socket.on(socEvent.pAssembly, (jsonPacketPart) => {
-      console.log('assembly')
+      packetPool[jsonPacketPart[binHead.pId]]
    })
 
    // message with more than 1 part
@@ -214,9 +230,9 @@ var server = net.createServer((socket) => { //'connection' listener
 
    socket.on(socEvent.send, (pId, pPart, jsonPart, pTruncated) => {
       if (pTruncated === undefined) {
-         socket.write(packPacketTrunc(pId, pPart, false, jsonPart))
+         socket.write(packPacket(pId, pPart, jsonPart))
       } else {
-         socket.write(packPacketTrunc(pId, pPart, pTruncated, jsonPart))
+         socket.write(packPacket(pId, pPart, jsonPart, pTruncated))
       }
    })
 
