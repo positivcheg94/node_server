@@ -1,10 +1,10 @@
 #! /usr/bin/node
 
 const net = require('net')
+const dgram = require('dgram')
 const buffer = require('buffer')
 const crypto = require('crypto');
 const fs = require('fs')
-
 const path = require('path')
 
 const bson = require("bson");
@@ -24,8 +24,10 @@ const mHead = pHead.message
 
 // requests
 const rq = config.request
-const restAPI = rq.restAPI
 const rqDir = rq.dir
+const restAPI = rq.restAPI
+const dgramCon = rq.dgramCon
+
 
 //responses
 const rp = config.response
@@ -68,13 +70,30 @@ autoincrementId.prototype.toString = function() {
    return this.id.toString()
 }
 
+function PacketManager(banCallback, endCallback){
+   this.banCallback = banCallback
+   this.endCallback = endCallback
+   this.tPackets = {}
+}
+/*
+PacketManager.prototype.manage = function(pid, part){
+   if (mHead.end in part){
+      this.parts[++this.currParts] = part
+      this.endCallback(parts)
+   }
+   else if (this.currParts>this.approxPThreshH){
+      this.banCallback(this.id)
+   }
+   else{
+      this.parts[++this.currParts] = part
+   }
+}
+*/
+
 // packet processing related functions
-function packPacket(pId, pPart, message, pTruncated, mode) {
+function packPacket(pId, pPart, mode, message, pTruncated) {
    if (pTruncated !== undefined) {
       message[mHead.truncated] = pTruncated
-   }
-   if (mode === undefined) {
-      var mode = pMode.json
    }
    if (DEBUG) {
       console.log('outgoing message')
@@ -120,119 +139,161 @@ function unpackPacket(data) {
    return {
       [binHead.pId]: data.readUInt32LE(4),
       [binHead.pPart]: data.readUInt32LE(8),
-      [mode.name]: mode,
       [mHead.name]: msg
    }
 }
 
 
 var server = net.createServer((socket) => { //'connection' listener
-   var client_public_key = null
+   //var client_public_key = null
 
-   var packetPool = {}
+   var bannedPackets = new Set()
+   var banCallback = (pId)=>{
+      bannedPackets.add(pId)
+   }
+
+   var clientAdress = socket.address().address
+
+   // Not "today"
+   // I will implement udp file exhange later
+   /*
+   var dgramSocket = dgram.createSocket(config.dgramType)
+
+   dgramSocket.on('message', (message, rinfo)=>{
+      console.log('${rinfo.address}:${rinfo.port} - $message')
+   })
+   dgramSocket.on('error',(error)=>{
+      console.log(error)
+   })
+   if (!dgramSocket.bind()){
+      var dgramSocket = null
+   }
+   */
 
    var incomingPacket = {
       packet_size: 0,
       bytes_received: 0,
       buff: null
    }
+
    var outgoingPacketId = new autoincrementId()
 
-   socket.setTimeout(config.socket_timeout, () => {
+   socket.setTimeout(config.socketTimeout, () => {
       console.log('timeout event')
       socket.end()
       socket.destroy()
    })
 
    // log connection
-   console.log(socket.address().address, ' - client connected')
+   console.log(clientAdress, ' - client connected')
 
 
    // processing deserialised packet
    socket.on(socEvent.pUnpack, (bsonPacket) => {
-      //try {
-      var jsonPacketPart = unpackPacket(bsonPacket)
-      if (jsonPacketPart[binHead.pPart] == 0 && !jsonPacketPart[mHead.name][mHead.truncated]) {
-         socket.emit(socEvent.request, jsonPacketPart[mHead.name])
-      } else {
-         socket.emit(socEvent.pAssembly, jsonPacketPart)
+      try{
+         var jsonPacketPart = unpackPacket(bsonPacket)
+      } catch (error) {
+         socket.emit(socEvent.hError, error)
       }
-      //} catch (error) {
-      //   socket.emit(socEvent.hError, error)
-      //}
+      var id = jsonPacketPart[binHead.pId]
+      var part = jsonPacketPart[binHead.pPart]
+      var msg = jsonPacketPart[mHead.name]
+      try {
+         console.log(msg)
+         if (msg[mHead.truncated]) {
+            // start packet chain
+            // rework inc
+            socket.emit(socEvent.pAssembly, jsonPacketPart)
+         }
+         else{
+            socket.emit(socEvent.request, msg)
+         }
+      } catch(error){
+         if (part==0){
+            socket.emit(socEvent.hError, "0 part, no truncated header")
+         }
+         else{
+            // continue packet chain
+            // rework inc
+            socket.emit(socEvent.pAssembly, jsonPacketPart)
+         }
+      }
    })
 
    // assembly messages with more than 1 part
    socket.on(socEvent.pAssembly, (jsonPacketPart) => {
-      packetPool[jsonPacketPart[binHead.pId]]
+      // I will implement this soon
+      // or redesing the way big messages are handled
    })
 
    // message with more than 1 part
    // socket.on(socEvent.bigMessage, (message) => {})
 
    socket.on(socEvent.request, (request) => {
-      //try {
-      console.log(socket.address().address, 'request - ', request[mHead.request])
-      switch (request[mHead.request]) {
-         case rqDir.name:
-            var dPath = request[rq.path]
-            fs.readdir(dPath, (error, files) => {
-               if (error) socket.emit('error', error)
-               var dir_entries = {
-                  [rpDir.d]: [],
-                  [rpDir.f]: []
-               }
-               var len = files.length
-               files.forEach((elem, id, array) => {
-                  fs.stat(path.join(dPath, elem), (error, stats) => {
-                     if (error) socket.emit('error', error)
-                     if (stats.isDirectory())
-                        dir_entries.dirs.push(elem)
-                     else
-                        dir_entries.files.push(elem)
-                     if (--len === 0) {
-                        socket.emit(socEvent.response, request, dir_entries)
-                     }
+      try {
+         console.log(socket.address().address, 'request - ', request[mHead.request])
+         switch (request[mHead.request]) {
+            case rqDir.name:
+               var dPath = request[rq.path]
+               fs.readdir(dPath, (error, files) => {
+                  if (error) socket.emit('error', error)
+                  var dir_entries = {
+                     [rpDir.d]: [],
+                     [rpDir.f]: []
+                  }
+                  var len = files.length
+                  files.forEach((elem, id, array) => {
+                     fs.stat(path.join(dPath, elem), (error, stats) => {
+                        if (error) socket.emit('error', error)
+                        if (stats.isDirectory())
+                           dir_entries.dirs.push(elem)
+                        else
+                           dir_entries.files.push(elem)
+                        if (--len === 0) {
+                           socket.emit(socEvent.response, request, pMode.json, dir_entries)
+                        }
+                     })
                   })
                })
-            })
-            break
-         case restAPI.name:
-            console.log("RESTAPI")
-            switch (request.method) {
-               case restAPI.method.get:
-                  console.log("RESTAPI get")
-                  var fPath = request[rq.path]
-                  var fName = path.basename(fPath)
-                  var fStream = fs.createReadStream(fPath)
-                  socket.emit(socEvent.sendStream, request, {
-                     filename: fName
-                  }, fStream)
-                  break
-            }
-            break
-
-         default:
-            socket.emit(socEvent.hError, 'unknown error')
+               break
+            case restAPI.name:
+               switch (request.method) {
+                  case restAPI.method.get:
+                     var fPath = request[rq.path]
+                     var fName = path.basename(fPath)
+                     var fStream = fs.createReadStream(fPath)
+                     socket.emit(socEvent.sendStream, request, {
+                        filename: fName
+                     }, fStream)
+                     break
+               }
+               break
+            case dgramCon.name:
+               var port = (dgramSocket===null)?null:dgramSocket.address().port
+               socket.emit(socEvent.response,request,pMode.json,{
+                  [dgramCon.port]:port
+               })
+            default:
+               socket.emit(socEvent.hError, 'unknown error')
+         }
+      } catch (error) {
+         socket.emit(socEvent.hError, error)
       }
-      //} catch (error) {
-      //   socket.emit(socEvent.hError, error)
-      //}
 
    })
 
-   socket.on(socEvent.response, (request, response) => {
-      socket.emit(socEvent.send, outgoingPacketId.get(), 0, {
+   socket.on(socEvent.response, (request, mode, response) => {
+      socket.emit(socEvent.send, outgoingPacketId.get(), 0, mode, {
          [mHead.request]: request,
          [mHead.response]: response
       }, false)
    })
 
-   socket.on(socEvent.send, (pId, pPart, jsonPart, pTruncated) => {
+   socket.on(socEvent.send, (pId, pPart, mode, jsonPart, pTruncated) => {
       if (pTruncated === undefined) {
-         socket.write(packPacket(pId, pPart, jsonPart))
+         socket.write(packPacket(pId, pPart, mode, jsonPart))
       } else {
-         socket.write(packPacket(pId, pPart, jsonPart, pTruncated))
+         socket.write(packPacket(pId, pPart, mode, jsonPart, pTruncated))
       }
    })
 
@@ -269,6 +330,11 @@ var server = net.createServer((socket) => { //'connection' listener
 
 
    socket.on(socEvent.data, (data) => {
+      // not sure about this, maybe while data.length > 0 is better
+      // but logicaly to expect, that client won't send in one tcp message
+      // more than one packet or the bytes left from the incomming packet
+      // anyways, this part needs a rework a bit later
+
       if (incomingPacket.packet_size != 0) {
 
          data.copy(incomingPacket.buff, incomingPacket.bytes_received)
@@ -281,13 +347,7 @@ var server = net.createServer((socket) => { //'connection' listener
          }
       } else {
          if (data.length < 4) {
-            socket.emit(socEvent.hError, {
-               name: 'Client handler error',
-               message: 'Too small packet',
-               toString: function() {
-                  return this.name + ": " + this.message
-               }
-            })
+            socket.emit(socEvent.hError,'Too small packet')
          }
 
          var size = data.readUInt32LE()

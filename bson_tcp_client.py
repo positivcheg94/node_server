@@ -12,17 +12,17 @@ PORT = 8085           # The same port as used by the server
 mode = 1
 
 class HashNotEqual(Exception):
-    def __init__(this):
+    def __init__(self):
         super().__init__()
-    def __str__(this):
+    def __str__(self):
         return "Hashes not equal"
 
 class Client:
 
-    def __init__(this):
-        this._sock = None
+    def __init__(self):
+        self._sock = None
 
-    def connect(this, host, port, mode):
+    def connect(self, host, port, mode):
         for res in socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM):
             af, socktype, proto, canonname, sa = res
             try:
@@ -40,13 +40,14 @@ class Client:
             return False
         if s is None:
             return False
-        this._sock = s
-        this._mode = mode
+        self._sock = s
+        self._mode = mode
+        self._dgram = None
 
-    def read_packet(this):
-        tmp = this._sock.recv(16)
+    def __read_packet__(self):
+        tmp = self._sock.recv(16)
         main_headers = struct.unpack('IIII', tmp)
-        main_data = this._sock.recv(main_headers[0] - 16)
+        main_data = self._sock.recv(main_headers[0] - 16)
         if main_headers[3] == 2:
             data = json.loads(main_data.decode())
         else:
@@ -59,14 +60,14 @@ class Client:
             'message': data
         }
 
-    def __receive_big_packet__(this):
+    def __receive_big_packet__(self):
         parts = []
-        first_packet = this.read_packet()
+        first_packet = self.__read_packet__()
         current_packet = None
         data_hash = None
         control_hash = hashlib.sha256()
         while(True):
-            current_packet = this.read_packet()
+            current_packet = self.__read_packet__()
             try:
                 data = current_packet['message']['data']
                 constrol_hash.update(data)
@@ -78,31 +79,40 @@ class Client:
         else:
             raise HashNotEqual
 
-    def __write_packet__(this, packet_id, packet_part, msg):
+    def __write_packet__(self, packet_id, packet_part, msg):
         msg['trunc']=False
-        if this._mode == 2:
+        if self._mode == 2:
             packed = json.dumps(msg).encode()
         else:
             print(msg)
             packed = bson.dumps(msg)
-        main_headers = struct.pack('IIII', 16 + len(packed), packet_id, packet_part, this._mode)
+        main_headers = struct.pack('IIII', 16 + len(packed), packet_id, packet_part, self._mode)
         buff = main_headers + packed
-        this._sock.sendall(buff)
+        self._sock.sendall(buff)
 
-    def scan_dir(this, path):
-        this.__write_packet__(0, 0, {'request': 'ls-l', 'path': path})
-        return this.read_packet()
+    def scan_dir(self, path):
+        self.__write_packet__(0, 0, {'request': 'ls-l', 'path': path})
+        return self.__read_packet__()
 
-    def get_file(this, path):
-        this.__write_packet__(0, 0, {
+    def get_file(self, path):
+        self.__write_packet__(0, 0, {
             'request': 'rest',
             'method': 'get',
             'path': path
         })
-        return this.__receive_big_packet__()
+        return self.__receive_big_packet__()
 
-    def __del__(this):
-        this._sock.close()
+    def get_port(self):
+        self.__write_packet__(0, 0, {
+            'request': 'dgram'
+        })
+        response = self.__read_packet__()
+        print(response)
+        self._dgram = response['message']['response']['port']
+        return self._dgram is not None
+
+    def __del__(self):
+        self._sock.close()
 
 def main():
     pass
@@ -125,6 +135,9 @@ if __name__ == "__main__":
     sc_dir = client.scan_dir('/home/yang/Downloads')
     print(time()-start)
     #print(sc_dir)
+    start = time()
+    sc_dir = client.get_port()
+    print(time()-start)
 
     """
     start = time()

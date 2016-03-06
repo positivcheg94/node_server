@@ -1,16 +1,19 @@
 {
-   "socket_timeout": 0,
+   "socketTimeout": 0,
    "prime_length": 256,
    "int_length": 32,
+   "maxPartsDiff":10,
    "aes_algorithm": "aes192",
    "server_root_dir": "./",
+   "dgramType":"udp6",
    "pHeaders": {
       "size": "size",
       "message": {
          "name": "message",
          "request": "request",
          "response": "response",
-         "truncated": "trunc"
+         "truncated": "trunc",
+         "end":"end"
       },
       "binary": {
          "pId": "pId",
@@ -23,6 +26,11 @@
       }
    },
    "request": {
+      "dgramCon":{
+         "name":"dgram",
+         "type":"type",
+         "port":"port"
+      },
       "restAPI": {
          "name": "rest",
          "method": {

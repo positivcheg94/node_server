@@ -4,8 +4,8 @@
   "description": "simple node.js server",
   "main": "bson-tcp-server.js",
   "scripts": {
-    "test": "node bson-tcp-server.js",
-    "start": "node bson-tcp-server.js"
+    "test": "node bson_tcp_server.js",
+    "start": "node bson_tcp_server.js"
   },
   "repository": {
     "type": "git",
