@@ -1,11 +1,11 @@
 {
-   "socketTimeout": 0,
-   "prime_length": 256,
-   "int_length": 32,
+   "server_root_dir": "./",
+   "maxErrors":42,
+   "socketTimeout": 100,
    "maxPartsDiff":10,
    "aes_algorithm": "aes192",
-   "server_root_dir": "./",
-   "banTime":3600,
+   "hashAlgorithm":"sha256",
+   "banTime":60000,
    "dgramType":"udp6",
    "pHeaders": {
       "size": "size",
@@ -54,11 +54,15 @@
          "d": "dirs"
       }
    },
+   "packetChainType":{
+      "short":"short"
+   },
    "socket": {
       "connect": "connect",
       "data": "data",
       "end": "end",
-      "hError": "error",
+      "hError": "hError",
+      "error":"error",
       "pUnpack": "unpac",
       "pAssembly": "pAss",
       "bigMessage": "message",
@@ -66,6 +70,7 @@
       "response": "rp",
       "send": "send",
       "sendStream": "sendStr",
-      "closeStream": "closeStream"
+      "closeStream": "closeStream",
+      "banId":"ban"
    }
 }

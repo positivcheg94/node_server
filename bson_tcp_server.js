@@ -34,24 +34,10 @@ const rp = config.response
 const rpDir = rp.dir
 
 // DEBUG
-const DEBUG = true
+const DEBUG = false
 
 // get config values
 const root_dir = config.server_root_dir
-
-// generate keys
-//var keys = crypto.createDiffieHellman(config.prime_length);
-//keys.generateKeys();
-//var keys_length = keys.getPublicKey().length
-
-/*
-console.log('Length - ' + keys.getPublicKey().length.toString() + ' - ' + keys.getPrivateKey().length.toString())
-console.log("Public Key : ", keys.getPublicKey());
-console.log("Private Key : ", keys.getPrivateKey());
-console.log("\n##################")
-console.log("Public Key : ", keys.getPublicKey('binary'));
-console.log("Private Key : ", keys.getPrivateKey('binary'));
-*/
 
 // auto increment class for counting packets and parts
 function autoincrementId() {
@@ -70,25 +56,35 @@ autoincrementId.prototype.toString = function() {
    return this.id.toString()
 }
 
-function PacketManager(banCallback, endCallback) {
+function PacketManager(banCallback, processCallback) {
    this.banCallback = banCallback
-   this.endCallback = endCallback
+   this.processCallback = processCallback
    this.tPackets = {}
 }
-/*
-PacketManager.prototype.manage = function(pid, part){
-   if (mHead.end in part){
-      this.parts[++this.currParts] = part
-      this.endCallback(parts)
+PacketManager.prototype.startChain = function(pId, pPart, msg) {
+   if (pId in this.tPackets) {
+      banCallback(pId)
    }
-   else if (this.currParts>this.approxPThreshH){
-      this.banCallback(this.id)
-   }
-   else{
-      this.parts[++this.currParts] = part
+   //switch(msg[mHead.request]){
+   //}
+   this.tPackets[pId] = {
+      //type:null,
+      parts:{pPart:msg}
    }
 }
-*/
+PacketManager.prototype.continueChain = function(pId, pPart, msg) {
+   if (mHead.end in msg) {
+      this.tPackets[pId].parts[pPart] = msg
+      this.processCallback(this.tPackets[pId].parts)
+   } else if (this.currParts > this.approxPThreshH) {
+      //switch(this.tPackets[pId].type){
+      //}
+      this.banCallback(this.id)
+   } else {
+      this.tPackets[pId].parts[pPart] = msg
+   }
+}
+
 
 // packet processing related functions
 function packPacket(pId, pPart, mode, message, pTruncated) {
@@ -109,69 +105,17 @@ function packPacket(pId, pPart, mode, message, pTruncated) {
    var totalSize = packet.length + 16
    var headers = Buffer(new Uint32Array([totalSize, pId, pPart, mode]).buffer)
 
-   return new Buffer.concat([headers, packet])
+   return Buffer.concat([headers, packet])
 }
-
-function unpackBinaryHeaders(data) {
-   return {
-
-   }
-}
-
-/* better to place this directly in socket.on because of easier exceptions handling
-function unpackPacket(data) {
-   var totalSize = data.readUInt32LE()
-   if (totalSize != data.length)
-      throw {
-         name: 'Unpack packet',
-         message: 'Size missmatch',
-         toString: function() {
-            return this.name + ": " + this.message
-         }
-      }
-   var binPacket = data.slice(16)
-   var mode = data.readInt32LE(12)
-   switch (mode) {
-      case pMode.json:
-         var msg = JSON.parse(binPacket.toString())
-         break;
-      default:
-         var msg = BSON.deserialize(binPacket)
-   }
-
-   if (DEBUG) {
-      console.log('incomming message')
-      console.log(msg)
-   }
-   return msg
-}
-*/
 
 var server = net.createServer((socket) => { //'connection' listener
-   //var client_public_key = null
-
+   var nErrors = 0
    var bannedPackets = new Set()
-   var banCallback = (pId) => {
-      bannedPackets.add(pId)
+   var banCallback = (pId, reason) => {
+      socket.emit(socEvent.banId, pId, reason)
    }
 
    var clientAdress = socket.address().address
-
-   // Not "today"
-   // I will implement udp file exhange later
-   /*
-   var dgramSocket = dgram.createSocket(config.dgramType)
-
-   dgramSocket.on('message', (message, rinfo)=>{
-      console.log('${rinfo.address}:${rinfo.port} - $message')
-   })
-   dgramSocket.on('error',(error)=>{
-      console.log(error)
-   })
-   if (!dgramSocket.bind()){
-      var dgramSocket = null
-   }
-   */
 
    var incomingPacket = {
       packet_size: 0,
@@ -193,7 +137,7 @@ var server = net.createServer((socket) => { //'connection' listener
 
    // processing deserialised packet
    socket.on(socEvent.pUnpack, (rawPart) => {
-      pId = rawPart.readUInt32LE(4)
+      var pId = rawPart.readUInt32LE(4)
       if (pId in bannedPackets) {
          // no logging but w/e, maybe I will add it later
          return
@@ -211,7 +155,8 @@ var server = net.createServer((socket) => { //'connection' listener
                var msg = BSON.deserialize(binPacket)
          }
       } catch (error) {
-         socket.emit(socEvent.hError, error)
+         socket.emit(socEvent.banId, pId, error)
+            //socket.emit(socEvent.banId, error)
       }
 
       if (DEBUG) {
@@ -223,23 +168,23 @@ var server = net.createServer((socket) => { //'connection' listener
          if (msg[mHead.truncated]) {
             // start packet chain
             // rework inc
-            socket.emit(socEvent.pAssembly, msg)
+            socket.emit(socEvent.pAssembly, pId, pPart, msg)
          } else {
             socket.emit(socEvent.request, msg)
          }
       } catch (error) {
          if (pPart == 0) {
-            socket.emit(socEvent.hError, "0 part, no truncated header")
+            socket.emit(socEvent.banId, pId, error)
          } else {
             // continue packet chain
             // rework inc
-            socket.emit(socEvent.pAssembly, msg)
+            socket.emit(socEvent.pAssembly, pId, pPart, msg)
          }
       }
    })
 
    // assembly messages with more than 1 part
-   socket.on(socEvent.pAssembly, (packetPart) => {
+   socket.on(socEvent.pAssembly, (pId, pPart, msg) => {
       // I will implement this soon
       // or redesing the way big messages are handled
    })
@@ -279,18 +224,15 @@ var server = net.createServer((socket) => { //'connection' listener
                   case restAPI.method.get:
                      var fPath = request[rq.path]
                      var fName = path.basename(fPath)
-                     var fStream = fs.createReadStream(fPath)
+                     var fStream = fs.createReadStream(fPath, {
+                        highWaterMark: "32kb"
+                     })
                      socket.emit(socEvent.sendStream, request, {
                         filename: fName
                      }, fStream)
                      break
                }
                break
-            case dgramCon.name:
-               var port = (dgramSocket === null) ? null : dgramSocket.address().port
-               socket.emit(socEvent.response, request, pMode.json, {
-                  [dgramCon.port]: port
-               })
             default:
                socket.emit(socEvent.hError, 'unknown error')
          }
@@ -324,7 +266,7 @@ var server = net.createServer((socket) => { //'connection' listener
          [mHead.response]: message
       }, true)
 
-      var hash = crypto.createHash('sha256')
+      var hash = crypto.createHash(config.hashAlgorithm)
 
       var closeListener = () => {
          readableStream.close()
@@ -339,11 +281,21 @@ var server = net.createServer((socket) => { //'connection' listener
       })
 
       readableStream.on('end', () => {
+         console.log(streamPart.check())
          socket.emit(socEvent.send, streamId, streamPart.get(), pMode.bson, {
             hash: hash.digest()
          })
          socket.removeListener(socEvent.closeStream, closeListener)
       })
+   })
+
+   socket.on(socEvent.banId, (pId, reason) => {
+      if (!pId in bannedPackets) {
+         bannedPackets.add(pId)
+         setTimeout(() => {
+            bannedPackets.delete(pId)
+         }, config.banTime)
+      }
    })
 
 
@@ -379,30 +331,28 @@ var server = net.createServer((socket) => { //'connection' listener
             incomingPacket.bytes_received = data.length
          }
       }
-
    })
 
    socket.on(socEvent.hError, (error) => {
+      console.log('hError event')
+      console.log(error)
+      if (nErrors++>config.maxErrors){
+         socket.emit(socEvent.error,'to many errors')
+      }
+   })
+
+   socket.on(socEvent.error, (error) => {
       console.log('error event')
       console.log(error)
       socket.emit(socEvent.closeStream)
       socket.end()
       socket.destroy()
    })
+
    socket.on(socEvent.end, () => {
       console.log('end event')
    })
 })
-
-/*
-process.on('uncaughtException',(exception)=>{
-   server.emit('error', exception)
-})
-
-server.on('error',(error)=>{
-   console.log('server error', error)
-})
-*/
 
 server.listen(8085, () => { //'listening' listener
    console.log('server bound')

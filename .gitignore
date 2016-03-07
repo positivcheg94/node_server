@@ -2,14 +2,16 @@
 __pycache__/
 *.py[cod]
 *$py.class
+
 # Node js modules
 node[_-]modules/*
+
 # python virtualenv
 python[_-]modules/*
+
+# atom ternjs project
+.tern-project
 
 # untracked files
 path.js
 server_test.py
-
-# atom ternjs project
-.tern-project

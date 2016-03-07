@@ -51,7 +51,10 @@ class Client:
         if main_headers[3] == 2:
             data = json.loads(main_data.decode())
         else:
-            data = bson.loads(main_data)
+            try:
+                data = bson.loads(main_data)
+            except:
+                print(main_data)
         return {
             'size': main_headers[0],
             'packet_id': main_headers[1],
