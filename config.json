@@ -5,6 +5,7 @@
    "maxPartsDiff":10,
    "aes_algorithm": "aes192",
    "server_root_dir": "./",
+   "banTime":3600,
    "dgramType":"udp6",
    "pHeaders": {
       "size": "size",
@@ -16,6 +17,7 @@
          "end":"end"
       },
       "binary": {
+         "pSize":"size",
          "pId": "pId",
          "pPart": "pPart",
          "mode":{

@@ -70,7 +70,7 @@ autoincrementId.prototype.toString = function() {
    return this.id.toString()
 }
 
-function PacketManager(banCallback, endCallback){
+function PacketManager(banCallback, endCallback) {
    this.banCallback = banCallback
    this.endCallback = endCallback
    this.tPackets = {}
@@ -112,6 +112,13 @@ function packPacket(pId, pPart, mode, message, pTruncated) {
    return new Buffer.concat([headers, packet])
 }
 
+function unpackBinaryHeaders(data) {
+   return {
+
+   }
+}
+
+/* better to place this directly in socket.on because of easier exceptions handling
 function unpackPacket(data) {
    var totalSize = data.readUInt32LE()
    if (totalSize != data.length)
@@ -136,19 +143,15 @@ function unpackPacket(data) {
       console.log('incomming message')
       console.log(msg)
    }
-   return {
-      [binHead.pId]: data.readUInt32LE(4),
-      [binHead.pPart]: data.readUInt32LE(8),
-      [mHead.name]: msg
-   }
+   return msg
 }
-
+*/
 
 var server = net.createServer((socket) => { //'connection' listener
    //var client_public_key = null
 
    var bannedPackets = new Set()
-   var banCallback = (pId)=>{
+   var banCallback = (pId) => {
       bannedPackets.add(pId)
    }
 
@@ -189,39 +192,54 @@ var server = net.createServer((socket) => { //'connection' listener
 
 
    // processing deserialised packet
-   socket.on(socEvent.pUnpack, (bsonPacket) => {
-      try{
-         var jsonPacketPart = unpackPacket(bsonPacket)
+   socket.on(socEvent.pUnpack, (rawPart) => {
+      pId = rawPart.readUInt32LE(4)
+      if (pId in bannedPackets) {
+         // no logging but w/e, maybe I will add it later
+         return
+      }
+      var pSize = rawPart.readUInt32LE()
+      var pPart = rawPart.readUInt32LE(8)
+      var pMode = rawPart.readInt32LE(12)
+      var binPacket = rawPart.slice(16)
+      try {
+         switch (pMode) {
+            case pMode.json:
+               var msg = JSON.parse(binPacket.toString())
+               break;
+            default:
+               var msg = BSON.deserialize(binPacket)
+         }
       } catch (error) {
          socket.emit(socEvent.hError, error)
       }
-      var id = jsonPacketPart[binHead.pId]
-      var part = jsonPacketPart[binHead.pPart]
-      var msg = jsonPacketPart[mHead.name]
-      try {
+
+      if (DEBUG) {
+         console.log('incomming message')
          console.log(msg)
+      }
+
+      try {
          if (msg[mHead.truncated]) {
             // start packet chain
             // rework inc
-            socket.emit(socEvent.pAssembly, jsonPacketPart)
-         }
-         else{
+            socket.emit(socEvent.pAssembly, msg)
+         } else {
             socket.emit(socEvent.request, msg)
          }
-      } catch(error){
-         if (part==0){
+      } catch (error) {
+         if (pPart == 0) {
             socket.emit(socEvent.hError, "0 part, no truncated header")
-         }
-         else{
+         } else {
             // continue packet chain
             // rework inc
-            socket.emit(socEvent.pAssembly, jsonPacketPart)
+            socket.emit(socEvent.pAssembly, msg)
          }
       }
    })
 
    // assembly messages with more than 1 part
-   socket.on(socEvent.pAssembly, (jsonPacketPart) => {
+   socket.on(socEvent.pAssembly, (packetPart) => {
       // I will implement this soon
       // or redesing the way big messages are handled
    })
@@ -269,9 +287,9 @@ var server = net.createServer((socket) => { //'connection' listener
                }
                break
             case dgramCon.name:
-               var port = (dgramSocket===null)?null:dgramSocket.address().port
-               socket.emit(socEvent.response,request,pMode.json,{
-                  [dgramCon.port]:port
+               var port = (dgramSocket === null) ? null : dgramSocket.address().port
+               socket.emit(socEvent.response, request, pMode.json, {
+                  [dgramCon.port]: port
                })
             default:
                socket.emit(socEvent.hError, 'unknown error')
@@ -301,7 +319,7 @@ var server = net.createServer((socket) => { //'connection' listener
       var streamId = outgoingPacketId.get()
       var streamPart = new autoincrementId()
 
-      socket.emit(socEvent.send, streamId, streamPart.get(), {
+      socket.emit(socEvent.send, streamId, streamPart.get(), pMode.json, {
          [mHead.request]: request,
          [mHead.response]: message
       }, true)
@@ -315,13 +333,13 @@ var server = net.createServer((socket) => { //'connection' listener
 
       readableStream.on('data', (chunk) => {
          hash.update(chunk)
-         socket.emit(socEvent.send, streamId, streamPart.get(), {
+         socket.emit(socEvent.send, streamId, streamPart.get(), pMode.bson, {
             data: chunk
          })
       })
 
       readableStream.on('end', () => {
-         socket.emit(socEvent.send, streamId, streamPart.get(), {
+         socket.emit(socEvent.send, streamId, streamPart.get(), pMode.bson, {
             hash: hash.digest()
          })
          socket.removeListener(socEvent.closeStream, closeListener)
@@ -347,7 +365,7 @@ var server = net.createServer((socket) => { //'connection' listener
          }
       } else {
          if (data.length < 4) {
-            socket.emit(socEvent.hError,'Too small packet')
+            socket.emit(socEvent.hError, 'Too small packet')
          }
 
          var size = data.readUInt32LE()

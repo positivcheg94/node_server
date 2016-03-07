@@ -66,14 +66,16 @@ class Client:
         current_packet = None
         data_hash = None
         control_hash = hashlib.sha256()
+
         while(True):
             current_packet = self.__read_packet__()
             try:
                 data = current_packet['message']['data']
-                constrol_hash.update(data)
+                control_hash.update(data)
                 parts.append(data)
             except KeyError:
                 data_hash = current_packet['message']['hash']
+                break
         if data_hash == control_hash.digest():
             return first_packet,parts,data_hash
         else:
@@ -135,12 +137,7 @@ if __name__ == "__main__":
     sc_dir = client.scan_dir('/home/yang/Downloads')
     print(time()-start)
     #print(sc_dir)
-    start = time()
-    sc_dir = client.get_port()
-    print(time()-start)
 
-    """
     start = time()
-    sc_dir = client.get_file('/home/yang/test')
+    get_file = client.get_file('/home/yang/test')
     print(time()-start)
-    """
